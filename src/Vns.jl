@@ -107,4 +107,25 @@ function one_point_exchange(sequence::Vector{Tuple{Int64,Int64,Int64}}, graph)
     return sequence, min(idx1, idx2)
 end
 
+function shake(sequence::Vector{Tuple{Int64,Int64,Int64}}, graph, l::Int64)
+    if l == 1
+        return waypoint_shake(sequence, graph)
+    elseif l == 2
+        return path_move(sequence, graph)
+    else
+        return path_exchange(sequence, graph)
+    end
+end
+
+
+function search(sequence::Vector{Tuple{Int64,Int64,Int64}}, graph, l::Int64)
+    if l == 1
+        return waypoint_change(sequence, graph)
+    elseif l == 2
+        return one_point_move(sequence, graph)
+    else
+        return one_point_exchange(sequence, graph)
+    end
+end
+
 end #end VNS

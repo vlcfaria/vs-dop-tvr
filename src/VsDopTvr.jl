@@ -1,6 +1,7 @@
 module VsDopTvr
 
 include("TimeFunctions.jl")
+include("Helper.jl")
 
 using FunctionWrappers
 import FunctionWrappers: FunctionWrapper
@@ -13,10 +14,6 @@ struct VehicleParameters
     a_max::Float64
     r_min::Float64
     r_max::Float64
-end
-
-function get_cessna172_params()
-    return VehicleParameters(30., 67., -3., 2., 65.7, 264.2)
 end
 
 struct DOPGraph
@@ -75,6 +72,42 @@ mutable struct Results
     travel_times::Vector{Float64}
     timestamps::Vector{Float64}
 end 
+
+function get_cessna172_params()
+    return VehicleParameters(30., 67., -3., 2., 65.7, 264.2)
+end
+
+function build_graph(instance_path::String, vehicle_params, graph_params = nothing)
+    points, scores, depots, tmax = Helper.read_optvr_file(instance_path)
+    
+    if graph_params === nothing
+        graph_params = DOPGraph(length(points), vehicle_params)
+    end
+
+    return OpParameters(Helper.compute_trajectories(points, graph_params), points, scores, depots, tmax)
+end
+
+function vs_dop_tvr(op_params, max_iterations::Int64 = 2000, verbose::Bool = false)
+    initial_seq, ini_time, ini_score = greedy_solution(op_params)
+    
+    if verbose
+        println("Initial Score: ", ini_score, ". Initial time: ", ini_time)
+    end
+
+    vns_seq, time, score = variable_neighborhood_search(op_params, initial_seq, max_iterations, verbose)
+
+    config = Helper.shortest_configuration_by_sequence(op_params, vns_seq)
+    path = Helper.retrieve_path(op_params, config)
+
+    return path, config, score, time
+end
+
+function greedy_solution(op_params)
+end
+
+function variable_neighborhood_search(op_params, initial_sequence::Vector{Tuple{Int64, Int64, Int64}}, 
+                                      max_iterations::Int64, verbose::Bool = false)
+end
 
 
 end # module VsDopTvr
