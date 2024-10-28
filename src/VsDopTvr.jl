@@ -1,7 +1,10 @@
 module VsDopTvr
 
+import IterTools as itr
+
 include("TimeFunctions.jl")
 include("Helper.jl")
+include("AcceleratedDubins.jl")
 
 using FunctionWrappers
 import FunctionWrappers: FunctionWrapper
@@ -62,7 +65,7 @@ end
 mutable struct OpParameters
     graph::DOPGraph
     coordinates::Array{Tuple{Float64, Float64}, 1}
-    functions::Vector{FunctionWrapper{Float64, Tuple{Float64}}}
+    functions::Vector{TimeFunctions.TimeFunc}
     depots::Vector{Int64}
     tmax::Float64
 end
@@ -84,7 +87,7 @@ function build_graph(instance_path::String, vehicle_params, graph_params = nothi
         graph_params = DOPGraph(length(points), vehicle_params)
     end
 
-    return OpParameters(Helper.compute_trajectories(points, graph_params), points, scores, depots, tmax)
+    return OpParameters(compute_trajectories(points, graph_params), points, scores, depots, tmax)
 end
 
 function vs_dop_tvr(op_params, max_iterations::Int64 = 2000, verbose::Bool = false)
@@ -100,6 +103,39 @@ function vs_dop_tvr(op_params, max_iterations::Int64 = 2000, verbose::Bool = fal
     path = Helper.retrieve_path(op_params, config)
 
     return path, config, score, time
+end
+
+function compute_trajectories(locations::Vector{Tuple{Float64, Float64}}, graph_params)
+    #Build a 6-dimensional graph (starting node, ending node, starting speed, ending speed, starting heading angle, ending heading angle)
+    num_locations = length(locations)
+    num_speeds = graph_params.num_speeds
+    num_headings = graph_params.num_headings
+    
+    graph = graph_params.graph
+
+    speeds = graph_params.speeds
+    headings = graph_params.headings
+    radii = graph_params.radii
+
+    # v_min v_max a_max -a_min
+    vehicle_params = graph_params.vehicle_params
+    params = [vehicle_params.v_min, vehicle_params.v_max, vehicle_params.a_max, -vehicle_params.a_min]
+    
+    @Threads.threads for node_i in 1:num_locations
+        for node_f in 1:num_locations
+            for (v_i, v_f) in itr.product(1:num_speeds, 1:num_speeds)
+                for (h_i, h_f) in itr.product(1:num_headings, 1:num_headings)
+                    start::Vector{Float64} = [locations[node_i][1], locations[node_i][2], headings[h_i]]
+                    stop::Vector{Float64} = [locations[node_f][1], locations[node_f][2], headings[h_f]]
+                    path, time, _ = AcceleratedDubins.fastest_path(start, stop, radii, params, [speeds[v_i], speeds[v_f]])
+                    #Set to edge, note that we can't take advantage of simmetry because acceleration max/min is not necessarily the same
+                    graph[node_i,node_f,v_i,v_f,h_i,h_f] = path === nothing ? Inf : time
+                end
+            end
+        end
+    end
+
+    return graph_params
 end
 
 function greedy_solution(op_params)
