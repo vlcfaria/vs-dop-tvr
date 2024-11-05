@@ -1,10 +1,12 @@
 module VsDopTvr
 
 import IterTools as itr
+using Random
 
 include("TimeFunctions.jl")
-include("Helper.jl")
 include("AcceleratedDubins.jl")
+include("Helper.jl")
+include("Visual.jl")
 
 using FunctionWrappers
 import FunctionWrappers: FunctionWrapper
@@ -138,7 +140,68 @@ function compute_trajectories(locations::Vector{Tuple{Float64, Float64}}, graph_
     return graph_params
 end
 
-function greedy_solution(op_params)
+function greedy_solution(op)
+    sequence::Vector{Tuple{Int64,Int64,Int64}} = [(op.depots[1], 1, 1)] #TODO better first choice
+    seq_time = 0
+    seq_score = 0
+    to_add = Set{Int64}(1:length(op.coordinates))
+    delete!(to_add, op.depots[1])
+
+    can_add = true
+    while can_add
+        can_add = false
+
+        prev = sequence[end]
+        best_score_increment = 0
+        best_ratio = 0
+        best_time_increment = 0
+        best_move = (-1,-1,-1)
+
+        # Find next best move
+        for candidate in to_add
+            # Check every edge and its legality (can go back to depot)
+            for (v,h) in itr.product(1:op.graph.num_speeds, 1:op.graph.num_headings)
+                time_increment = op.graph.graph[prev[1], candidate, prev[2], v, prev[3], h]
+                score_increment = op.functions[candidate](seq_time + time_increment)
+                ratio = score_increment / time_increment
+    
+                if ratio > best_ratio && Helper.is_legal_move(op, sequence, op.depots[1], seq_time + time_increment)
+                    best_move = (candidate, v, h)
+                    best_score_increment = score_increment
+                    best_time_increment = time_increment
+                    best_ratio = ratio
+                    can_add = true
+                end
+            end
+        end
+        
+        if can_add #append best move
+            delete!(to_add, best_move[1])
+            push!(sequence, best_move)
+            seq_time += best_time_increment
+            seq_score += best_score_increment
+        end
+    end
+
+    # Round up path adding depot back
+    best_time = typemax(Int)
+    best_move = (-1,-1,-1)
+    prev = sequence[end]
+
+    for (v,h) in itr.product(1:op.graph.num_speeds, 1:op.graph.num_headings)
+        if op.graph.graph[prev[1], op.depots[1], prev[2], v, prev[3], h] < best_time
+            best_time = op.graph.graph[prev[1], op.depots[1], prev[2], v, prev[3], h]
+            best_move = (op.depots[1], v, h)
+        end
+    end
+
+    push!(sequence, best_move)
+
+    remaining = shuffle(collect(to_add))
+
+    sequence = vcat(sequence, [(n, rand(1:op.graph.num_speeds), rand(1:op.graph.num_headings)) for n in remaining])
+
+    return sequence, seq_score, seq_time
 end
 
 function variable_neighborhood_search(op_params, initial_sequence::Vector{Tuple{Int64, Int64, Int64}}, 
