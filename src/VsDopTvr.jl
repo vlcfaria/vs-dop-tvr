@@ -7,6 +7,7 @@ include("TimeFunctions.jl")
 include("AcceleratedDubins.jl")
 include("Helper.jl")
 include("Visual.jl")
+include("Vns.jl")
 
 using FunctionWrappers
 import FunctionWrappers: FunctionWrapper
@@ -70,6 +71,7 @@ mutable struct OpParameters
     functions::Vector{TimeFunctions.TimeFunc}
     depots::Vector{Int64}
     tmax::Float64
+    dists_to_depot::Array{Float64, 4}
 end
 
 mutable struct Results
@@ -89,7 +91,8 @@ function build_graph(instance_path::String, vehicle_params, graph_params = nothi
         graph_params = DOPGraph(length(points), vehicle_params)
     end
 
-    return OpParameters(compute_trajectories(points, graph_params), points, scores, depots, tmax)
+    graph_params = Helper.compute_trajectories(points, graph_params)
+    return OpParameters(graph_params, points, scores, depots, tmax, Helper.compute_fastests_paths_to_depot(graph_params, depots))
 end
 
 function vs_dop_tvr(op_params, max_iterations::Int64 = 2000, verbose::Bool = false)
@@ -105,39 +108,6 @@ function vs_dop_tvr(op_params, max_iterations::Int64 = 2000, verbose::Bool = fal
     path = Helper.retrieve_path(op_params, config)
 
     return path, config, score, time
-end
-
-function compute_trajectories(locations::Vector{Tuple{Float64, Float64}}, graph_params)
-    #Build a 6-dimensional graph (starting node, ending node, starting speed, ending speed, starting heading angle, ending heading angle)
-    num_locations = length(locations)
-    num_speeds = graph_params.num_speeds
-    num_headings = graph_params.num_headings
-    
-    graph = graph_params.graph
-
-    speeds = graph_params.speeds
-    headings = graph_params.headings
-    radii = graph_params.radii
-
-    # v_min v_max a_max -a_min
-    vehicle_params = graph_params.vehicle_params
-    params = [vehicle_params.v_min, vehicle_params.v_max, vehicle_params.a_max, -vehicle_params.a_min]
-    
-    @Threads.threads for node_i in 1:num_locations
-        for node_f in 1:num_locations
-            for (v_i, v_f) in itr.product(1:num_speeds, 1:num_speeds)
-                for (h_i, h_f) in itr.product(1:num_headings, 1:num_headings)
-                    start::Vector{Float64} = [locations[node_i][1], locations[node_i][2], headings[h_i]]
-                    stop::Vector{Float64} = [locations[node_f][1], locations[node_f][2], headings[h_f]]
-                    path, time, _ = AcceleratedDubins.fastest_path(start, stop, radii, params, [speeds[v_i], speeds[v_f]])
-                    #Set to edge, note that we can't take advantage of simmetry because acceleration max/min is not necessarily the same
-                    graph[node_i,node_f,v_i,v_f,h_i,h_f] = path === nothing ? Inf : time
-                end
-            end
-        end
-    end
-
-    return graph_params
 end
 
 function greedy_solution(op)
@@ -204,8 +174,61 @@ function greedy_solution(op)
     return sequence, seq_score, seq_time
 end
 
-function variable_neighborhood_search(op_params, initial_sequence::Vector{Tuple{Int64, Int64, Int64}}, 
+function variable_neighborhood_search(op, initial_sequence::Vector{Tuple{Int64, Int64, Int64}}, 
                                       max_iterations::Int64, verbose::Bool = false)
+
+    best_score, best_time = Helper.calculate_seq_results(op, initial_sequence)
+    best_sequence = initial_sequence
+    len = length(initial_sequence)
+    if (best_time > op.tmax) 
+        throw("Invalid initial solution given")
+    end
+
+    for i in 1:max_iterations
+        if verbose
+            println(("OUTER", i, best_time, best_score))
+        end
+
+        l = 1
+        while l <= 3
+            #Shake
+            local_sequence = Vns.shake(deepcopy(best_sequence), op.graph, l)
+            local_score, local_time = Helper.calculate_seq_results(op, local_sequence)
+
+            println(("Start", l, local_score, local_time))
+            
+            #Search
+            for j in 1:len^2
+                search_seq, change_pos = Vns.search(deepcopy(local_sequence), op.graph, l)
+                search_score, search_time = Helper.calculate_seq_results(op, search_seq)
+
+                #If local solution is not valid, always accept
+                if local_time > op.tmax && search_time < local_time
+                    local_sequence = search_seq
+                    local_time = search_time
+                    local_score = search_score
+                # Check if searched solution is better
+                elseif (search_score > local_score && search_time <= op.tmax) || (search_score == local_score && search_time < local_time)
+                    local_sequence = search_seq
+                    local_time = search_time
+                    local_score = search_score
+                end
+            end
+
+            println(("Final", local_score, local_time))
+            #Higher score found through local search OR equal score with lower time
+            if (local_time <= op.tmax && local_score > best_score) || (local_score == best_score && local_time < best_time)
+                best_time = local_time
+                best_sequence = local_sequence
+                best_score = local_score
+                l = 1
+            else
+                l += 1
+            end
+        end
+    end
+
+    return best_sequence, best_time, best_score
 end
 
 

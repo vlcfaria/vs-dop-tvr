@@ -68,7 +68,7 @@ function is_legal_move(op, seq::Vector{Tuple{Int64,Int64,Int64}}, depot, time)
     return false
 end
 
-function calculate_seq_score(op, seq::Vector{Tuple{Int64,Int64,Int64}})
+function calculate_seq_results(op, seq::Vector{Tuple{Int64,Int64,Int64}})
     elapsed_time = 0
     score = 0
 
@@ -116,6 +116,65 @@ function retrieve_path(op_params, configurations::Vector{Tuple{Int64, Int64, Int
     end
 
     return full_path
+end
+
+function compute_trajectories(locations::Vector{Tuple{Float64, Float64}}, graph_params)
+    #Build a 6-dimensional graph (starting node, ending node, starting speed, ending speed, starting heading angle, ending heading angle)
+    num_locations = length(locations)
+    num_speeds = graph_params.num_speeds
+    num_headings = graph_params.num_headings
+    
+    graph = graph_params.graph
+
+    speeds = graph_params.speeds
+    headings = graph_params.headings
+    radii = graph_params.radii
+
+    # v_min v_max a_max -a_min
+    vehicle_params = graph_params.vehicle_params
+    params = [vehicle_params.v_min, vehicle_params.v_max, vehicle_params.a_max, -vehicle_params.a_min]
+    
+    @Threads.threads for node_i in 1:num_locations
+        for node_f in 1:num_locations
+            for (v_i, v_f) in itr.product(1:num_speeds, 1:num_speeds)
+                for (h_i, h_f) in itr.product(1:num_headings, 1:num_headings)
+                    start::Vector{Float64} = [locations[node_i][1], locations[node_i][2], headings[h_i]]
+                    stop::Vector{Float64} = [locations[node_f][1], locations[node_f][2], headings[h_f]]
+                    path, time, _ = AcceleratedDubins.fastest_path(start, stop, radii, params, [speeds[v_i], speeds[v_f]])
+                    #Set to edge, note that we can't take advantage of simmetry because acceleration max/min is not necessarily the same
+                    graph[node_i,node_f,v_i,v_f,h_i,h_f] = path === nothing ? Inf : time
+                end
+            end
+        end
+    end
+
+    return graph_params
+end
+
+function compute_fastests_paths_to_depot(graph, depots)
+    num_targets = size(graph.graph)[1]
+    num_speeds = graph.num_speeds
+    num_headings = graph.num_headings
+
+    fastest_paths = Array{Float64, 4}(undef, num_targets, num_speeds, num_headings, length(depots))
+
+    for dep in 1:length(depots)
+        for (target, speed, heading) in itr.product(1:num_targets, 1:num_speeds, 1:num_headings)
+            # Check for fastest path in graph
+            best = Inf
+            for (dep_speed, dep_heading) in itr.product(1:num_speeds, 1:num_headings)
+                time = graph.graph[target, depots[dep], speed, dep_speed, heading, dep_heading]
+                if time < best
+                    best = time
+                end
+            end
+
+            #Fill in
+            fastest_paths[target, speed, heading, dep] = best
+        end
+    end
+
+    return fastest_paths
 end
 
 end

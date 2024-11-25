@@ -1,8 +1,6 @@
 module Vns
 
-#Operators based on
-# Data Collection Planning with Non-zero Sensing Distance for a 
-# Budget and Curvature Constrained Unmanned Aerial Vehicle
+using Random
 
 function waypoint_shake(sequence::Vector{Tuple{Int64,Int64,Int64}}, graph)
     #Operator randomly changes the waypoints currently used by the incumbent solution
@@ -66,7 +64,7 @@ function waypoint_change(sequence::Vector{Tuple{Int64,Int64,Int64}}, graph)
 
     sequence[point] = (sequence[point][1], rand(1:graph.num_speeds), rand(1:graph.num_headings))
 
-    return sequence
+    return sequence, point
 end
 
 function one_point_move(sequence::Vector{Tuple{Int64,Int64,Int64}}, graph)
