@@ -135,7 +135,7 @@ function greedy_solution(op)
                 score_increment = op.functions[candidate](seq_time + time_increment)
                 ratio = score_increment / time_increment
     
-                if ratio > best_ratio && Helper.is_legal_move(op, sequence, op.depots[1], seq_time + time_increment)
+                if ratio > best_ratio && op.dists_to_depot[candidate, v, h, 1] + time_increment + seq_time <= op.tmax
                     best_move = (candidate, v, h)
                     best_score_increment = score_increment
                     best_time_increment = time_increment
@@ -152,20 +152,6 @@ function greedy_solution(op)
             seq_score += best_score_increment
         end
     end
-
-    # Round up path adding depot back
-    best_time = typemax(Int)
-    best_move = (-1,-1,-1)
-    prev = sequence[end]
-
-    for (v,h) in itr.product(1:op.graph.num_speeds, 1:op.graph.num_headings)
-        if op.graph.graph[prev[1], op.depots[1], prev[2], v, prev[3], h] < best_time
-            best_time = op.graph.graph[prev[1], op.depots[1], prev[2], v, prev[3], h]
-            best_move = (op.depots[1], v, h)
-        end
-    end
-
-    push!(sequence, best_move)
 
     remaining = shuffle(collect(to_add))
 
@@ -195,27 +181,27 @@ function variable_neighborhood_search(op, initial_sequence::Vector{Tuple{Int64, 
             local_sequence = Vns.shake(deepcopy(best_sequence), op.graph, l)
             local_score, local_time = Helper.calculate_seq_results(op, local_sequence)
 
-            println(("Start", l, local_score, local_time))
+            if verbose
+                println(("Start", l, local_score, local_time))
+            end
             
             #Search
             for j in 1:len^2
                 search_seq, change_pos = Vns.search(deepcopy(local_sequence), op.graph, l)
                 search_score, search_time = Helper.calculate_seq_results(op, search_seq)
 
-                #If local solution is not valid, always accept
-                if local_time > op.tmax && search_time < local_time
-                    local_sequence = search_seq
-                    local_time = search_time
-                    local_score = search_score
                 # Check if searched solution is better
-                elseif (search_score > local_score && search_time <= op.tmax) || (search_score == local_score && search_time < local_time)
+                if (search_score > local_score && search_time <= op.tmax) || (search_score == local_score && search_time < local_time)
                     local_sequence = search_seq
                     local_time = search_time
                     local_score = search_score
                 end
             end
 
-            println(("Final", local_score, local_time))
+            if verbose
+                println(("Final", local_score, local_time))
+            end
+            
             #Higher score found through local search OR equal score with lower time
             if (local_time <= op.tmax && local_score > best_score) || (local_score == best_score && local_time < best_time)
                 best_time = local_time

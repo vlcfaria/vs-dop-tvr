@@ -68,26 +68,80 @@ function is_legal_move(op, seq::Vector{Tuple{Int64,Int64,Int64}}, depot, time)
     return false
 end
 
+function find_best_route_to_depot(op, target::Tuple{Int64,Int64,Int64})
+    best_dep = 0
+    best_speed = 0
+    best_heading = 0
+
+    best_time = Inf
+    for (dep, speed, heading) in itr.product(1:length(op.depots), 1:op.graph.num_speeds, 1:op.graph.num_headings)
+        time = op.graph.graph[target[1], dep, target[2], speed, target[3], heading]
+        if time < best_time
+            best_time = time
+            best_dep = dep
+            best_speed = speed
+            best_heading = heading
+        end
+    end
+
+    return (best_dep, best_speed, best_heading)
+end
+
 function calculate_seq_results(op, seq::Vector{Tuple{Int64,Int64,Int64}})
     elapsed_time = 0
     score = 0
 
     for i in 2:length(seq)
-        if seq[i][1] == op.depots[1]
-            break
-        end
         prev = i-1
 
-        elapsed_time += op.graph.graph[seq[prev][1], seq[i][1], seq[prev][2], seq[i][2], seq[prev][3], seq[i][3]]
+        new_cost = op.graph.graph[seq[prev][1], seq[i][1], seq[prev][2], seq[i][2], seq[prev][3], seq[i][3]]
+
+        #If cannot go back to depot in time, next target cannot be added, sequence is over
+        if op.dists_to_depot[seq[i][1], seq[i][2], seq[i][3], 1] + new_cost + elapsed_time > op.tmax
+            # PREV goes back to depot
+            elapsed_time += op.dists_to_depot[seq[prev][1], seq[prev][2], seq[prev][3], 1]
+            return score, elapsed_time
+        end
+
+        elapsed_time += new_cost
         score += op.functions[seq[i][1]](elapsed_time)
     end
 
+    #Got to the end of vector, go back to depot anyway
+    elapsed_time += op.dists_to_depot[seq[end][1], seq[end][2], seq[end][3], 1]
+
     return score, elapsed_time
+end
+
+#Gets "actual" sequence. Includes final visit to depot, and stops when visiting final visit.
+function get_actual_sequence(op, seq::Vector{Tuple{Int64, Int64, Int64}})
+    elapsed_time = 0
+    full_seq = Vector{Tuple{Int64, Int64, Int64}}()
+    push!(full_seq, seq[1]) #push depot
+
+    for i in 2:length(seq)
+        prev = i - 1
+        new_cost = op.graph.graph[seq[prev][1], seq[i][1], seq[prev][2], seq[i][2], seq[prev][3], seq[i][3]]
+
+        #Check if can add point and still return to depot
+        if op.dists_to_depot[seq[i][1], seq[i][2], seq[i][3], 1] + new_cost + elapsed_time > op.tmax
+            push!(full_seq, find_best_route_to_depot(op, seq[prev]))
+
+            return full_seq
+        end
+
+        #Can continue
+        elapsed_time += new_cost
+        push!(full_seq, seq[i])
+    end
+
+    push!(full_seq, find_best_route_to_depot(op, seq[end]))
 end
 
 function retrieve_path(op_params, configurations::Vector{Tuple{Int64, Int64, Int64}})
     #(dubinspath, starting_speed, ending_speed)
     full_path::Vector{Tuple{AcceleratedDubins.DubinsPathR2, Float64, Float64}} = []
+    configurations = get_actual_sequence(op_params, configurations)
 
     locations = op_params.coordinates
     headings = op_params.graph.headings
@@ -97,22 +151,17 @@ function retrieve_path(op_params, configurations::Vector{Tuple{Int64, Int64, Int
     vehicle_params = op_params.graph.vehicle_params
     params = [vehicle_params.v_min, vehicle_params.v_max, vehicle_params.a_max, -vehicle_params.a_min]
 
-    for i in 1:length(configurations)-1
-        if i != 1 && configurations[i][1] == op_params.depots[1]
-            break
-        end
-        
-        next = i + 1
+    for i in 2:length(configurations)
+        prev = i - 1
 
-        n_i, v_i, h_i = configurations[i]
-        n_f, v_f, h_f = configurations[next]
+        n_i, v_i, h_i = configurations[prev]
+        n_f, v_f, h_f = configurations[i]
 
         starting::Vector{Float64} = [locations[n_i][1], locations[n_i][2], headings[h_i]]
         ending::Vector{Float64} = [locations[n_f][1], locations[n_f][2], headings[h_f]]
 
-        path, time, _ = AcceleratedDubins.fastest_path(starting, ending, radii, params, [speeds[v_i], speeds[v_f]])
-
-        push!(full_path, (path, speeds[configurations[i][2]], speeds[configurations[next][2]]))
+        path, _, _ = AcceleratedDubins.fastest_path(starting, ending, radii, params, [speeds[v_i], speeds[v_f]])
+        push!(full_path, (path, speeds[configurations[prev][2]], speeds[configurations[i][2]]))
     end
 
     return full_path
