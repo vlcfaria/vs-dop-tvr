@@ -24,6 +24,9 @@ function path_move(sequence::Vector{Tuple{Int64,Int64,Int64}}, graph)
         segment = sequence[start_idx:end_idx]
         removed = vcat(sequence[1:start_idx-1], sequence[end_idx+1:len])
         insertion_point = rand(1:len - (end_idx - start_idx + 1))
+        
+        #Change all waypoints in the segment
+        segment = [(p, rand(1:graph.num_speeds), rand(1:graph.num_headings)) for (p,_,_) in segment]
 
         res = vcat(removed[1:insertion_point], segment, removed[insertion_point+1:length(removed)])
 
@@ -54,6 +57,10 @@ function path_exchange(sequence::Vector{Tuple{Int64,Int64,Int64}}, graph)
     seg1 = sequence[start1:end1]
     seg2 = sequence[start2:end2]
 
+    #Change waypoints of both segments
+    seg1 = [(p, rand(1:graph.num_speeds), rand(1:graph.num_headings)) for (p,_,_) in seg1]
+    seg2 = [(p, rand(1:graph.num_speeds), rand(1:graph.num_headings)) for (p,_,_) in seg2]
+
     res = vcat(sequence[1:start1-1], seg2, sequence[end1 + 1:start2-1], seg1, sequence[end2+1:len])
 
     return res
@@ -73,15 +80,22 @@ function one_point_move(sequence::Vector{Tuple{Int64,Int64,Int64}}, graph)
         return sequence
     end
 
-    idx = rand(2:len)
+    idx = rand(1:len)
     val = sequence[idx]
     deleteat!(sequence, idx)
 
-    new_idx = rand(2:len)
-    #Assure index is different
-    while new_idx == idx
+    if idx == 1 #If changing first point (depot), keep it there
+        new_idx = 1
+    else
         new_idx = rand(2:len)
+        #Assure index is different
+        while new_idx == idx
+            new_idx = rand(2:len)
+        end
     end
+
+    #Randomly change waypoint too
+    val = (val[1], rand(1:graph.num_speeds), rand(1:graph.num_headings))
     insert!(sequence, new_idx, val)
 
     return sequence, min(new_idx, idx)
@@ -101,6 +115,9 @@ function one_point_exchange(sequence::Vector{Tuple{Int64,Int64,Int64}}, graph)
     end
 
     sequence[idx1], sequence[idx2] = sequence[idx2], sequence[idx1]
+
+    sequence[idx1] = (sequence[idx1][1], rand(1:graph.num_speeds), rand(1:graph.num_headings))
+    sequence[idx2] = (sequence[idx2][1], rand(1:graph.num_speeds), rand(1:graph.num_headings))
 
     return sequence, min(idx1, idx2)
 end

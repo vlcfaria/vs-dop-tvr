@@ -71,7 +71,8 @@ mutable struct OpParameters
     functions::Vector{TimeFunctions.TimeFunc}
     depots::Vector{Int64}
     tmax::Float64
-    dists_to_depot::Array{Float64, 4}
+    dists_to_depot::Array{Float64, 4} #TODO this can be a 3-dimensional array, calculate to fastest depot in case of more depots
+    #(n,v,h,depot)
 end
 
 mutable struct Results
@@ -186,7 +187,7 @@ function variable_neighborhood_search(op, initial_sequence::Vector{Tuple{Int64, 
             end
             
             #Search
-            for j in 1:len^2
+            for _ in 1:(len^2*op.graph.num_speeds^2*op.graph.num_headings^2)
                 search_seq, change_pos = Vns.search(deepcopy(local_sequence), op.graph, l)
                 search_score, search_time = Helper.calculate_seq_results(op, search_seq)
 
