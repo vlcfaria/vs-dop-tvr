@@ -94,13 +94,14 @@ function calculate_seq_results(op, seq::Vector{Tuple{Int64,Int64,Int64}})
     for i in 2:length(seq)
         prev = i-1
 
+        #Cost from going from prev to i
         new_cost = op.graph.graph[seq[prev][1], seq[i][1], seq[prev][2], seq[i][2], seq[prev][3], seq[i][3]]
 
         #If cannot go back to depot in time, next target cannot be added, sequence is over
         if op.dists_to_depot[seq[i][1], seq[i][2], seq[i][3], 1] + new_cost + elapsed_time > op.tmax
             # PREV goes back to depot
             elapsed_time += op.dists_to_depot[seq[prev][1], seq[prev][2], seq[prev][3], 1]
-            return score, elapsed_time
+            return score, elapsed_time, i #i is the first index not in solution
         end
 
         elapsed_time += new_cost
@@ -110,7 +111,7 @@ function calculate_seq_results(op, seq::Vector{Tuple{Int64,Int64,Int64}})
     #Got to the end of vector, go back to depot anyway
     elapsed_time += op.dists_to_depot[seq[end][1], seq[end][2], seq[end][3], 1]
 
-    return score, elapsed_time
+    return score, elapsed_time, length(seq) #all indexes are in the solution, go back
 end
 
 #Gets "actual" sequence. Includes final visit to depot, and stops when visiting final visit.

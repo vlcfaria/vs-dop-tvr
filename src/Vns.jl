@@ -66,15 +66,15 @@ function path_exchange(sequence::Vector{Tuple{Int64,Int64,Int64}}, graph)
     return res
 end
 
-function waypoint_change(sequence::Vector{Tuple{Int64,Int64,Int64}}, graph)
-    point = rand(1:length(sequence))
+function waypoint_change(sequence::Vector{Tuple{Int64,Int64,Int64}}, graph, limit_idx)
+    point = rand(1:limit_idx) #Only change up to limit index, changing others wont do nothing new
 
     sequence[point] = (sequence[point][1], rand(1:graph.num_speeds), rand(1:graph.num_headings))
 
     return sequence, point
 end
 
-function one_point_move(sequence::Vector{Tuple{Int64,Int64,Int64}}, graph)
+function one_point_move(sequence::Vector{Tuple{Int64,Int64,Int64}}, graph, limit_idx)
     len = length(sequence)
     if len <= 2 #Cant apply operator since first index cannot be moved
         return sequence
@@ -86,12 +86,14 @@ function one_point_move(sequence::Vector{Tuple{Int64,Int64,Int64}}, graph)
 
     if idx == 1 #If changing first point (depot), keep it there
         new_idx = 1
-    else
+    elseif idx <= limit_idx #Any chosen index will modify the sequence
         new_idx = rand(2:len)
         #Assure index is different
         while new_idx == idx
             new_idx = rand(2:len)
         end
+    else #Chosen index is out of the limit index, new index must be up to limit
+        new_idx = rand(2:limit_idx)
     end
 
     #Randomly change waypoint too
@@ -101,19 +103,25 @@ function one_point_move(sequence::Vector{Tuple{Int64,Int64,Int64}}, graph)
     return sequence, min(new_idx, idx)
 end
 
-function one_point_exchange(sequence::Vector{Tuple{Int64,Int64,Int64}}, graph)
+function one_point_exchange(sequence::Vector{Tuple{Int64,Int64,Int64}}, graph, limit_idx)
     len = length(sequence)
     if len <= 2 #Cant apply operator since first index cannot be moved
         return sequence
     end
 
     idx1 = rand(2:len)
-    idx2 = rand(2:len)
 
-    while idx1 == idx2
-        idx2 = rand(2:len)
+    if idx1 <= limit_idx
+        idx2 = rand(2:len) #Choosing anything will modify the sequence
+        while idx1 == idx2 #While also assuring it is different
+            idx2 = rand(2:len)
+        end
+    else
+        #Need to choose a value within limit index
+        idx2 = rand(2:limit_idx)
     end
 
+    #Swap and assign random waypoints
     sequence[idx1], sequence[idx2] = sequence[idx2], sequence[idx1]
 
     sequence[idx1] = (sequence[idx1][1], rand(1:graph.num_speeds), rand(1:graph.num_headings))
@@ -133,13 +141,14 @@ function shake(sequence::Vector{Tuple{Int64,Int64,Int64}}, graph, l::Int64)
 end
 
 
-function search(sequence::Vector{Tuple{Int64,Int64,Int64}}, graph, l::Int64)
+#limit_idx is the first index of the solution that is not visited, or the last index, in case all points is visited
+function search(sequence::Vector{Tuple{Int64,Int64,Int64}}, graph, l::Int64, limit_idx::Int64)
     if l == 1
-        return waypoint_change(sequence, graph)
+        return waypoint_change(sequence, graph, limit_idx)
     elseif l == 2
-        return one_point_move(sequence, graph)
+        return one_point_move(sequence, graph, limit_idx)
     else
-        return one_point_exchange(sequence, graph)
+        return one_point_exchange(sequence, graph, limit_idx)
     end
 end
 

@@ -180,22 +180,23 @@ function variable_neighborhood_search(op, initial_sequence::Vector{Tuple{Int64, 
         while l <= 3
             #Shake
             local_sequence = Vns.shake(deepcopy(best_sequence), op.graph, l)
-            local_score, local_time = Helper.calculate_seq_results(op, local_sequence)
+            local_score, local_time, local_limit_idx = Helper.calculate_seq_results(op, local_sequence)
 
             if verbose
                 println(("Start", l, local_score, local_time))
             end
             
             #Search
-            for _ in 1:(len^2*op.graph.num_speeds^2*op.graph.num_headings^2)
-                search_seq, change_pos = Vns.search(deepcopy(local_sequence), op.graph, l)
-                search_score, search_time = Helper.calculate_seq_results(op, search_seq)
+            for _ in 1:(len^2*op.graph.num_speeds^2*op.graph.num_headings)
+                search_seq, change_pos = Vns.search(deepcopy(local_sequence), op.graph, l, local_limit_idx)
+                search_score, search_time, search_limit_idx = Helper.calculate_seq_results(op, search_seq)
 
-                # Check if searched solution is better
-                if (search_score > local_score && search_time <= op.tmax) || (search_score == local_score && search_time < local_time)
+                # Check if searched solution is better OR equal -> Higher score within tmax OR same score, lower time
+                if (search_score > local_score && search_time <= op.tmax) || (search_score == local_score && search_time <= local_time)
                     local_sequence = search_seq
                     local_time = search_time
                     local_score = search_score
+                    local_limit_idx = search_limit_idx
                 end
             end
 
