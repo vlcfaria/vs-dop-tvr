@@ -3,9 +3,16 @@ module Vns
 using Random
 
 function waypoint_shake(sequence::Vector{Tuple{Int64,Int64,Int64}}, graph)
-    #Operator randomly changes the waypoints currently used by the incumbent solution
+    #Operator randomly changes waypoints in a selected range
 
-    for i in 1:length(sequence)
+    p1 = rand(1:length(sequence))
+    p2 = rand(1:length(sequence))
+
+    if p2 < p1
+        p1, p2 = p2, p1
+    end
+
+    for i in p1:p2
         sequence[i] = (sequence[i][1], rand(1:graph.num_speeds), rand(1:graph.num_headings))
     end
 
@@ -66,7 +73,7 @@ function path_exchange(sequence::Vector{Tuple{Int64,Int64,Int64}}, graph)
     return res
 end
 
-function waypoint_change(sequence::Vector{Tuple{Int64,Int64,Int64}}, graph, limit_idx)
+function waypoint_change(sequence::Vector{Tuple{Int64,Int64,Int64}}, graph, limit_idx::Int64)
     point = rand(1:limit_idx) #Only change up to limit index, changing others wont do nothing new
 
     sequence[point] = (sequence[point][1], rand(1:graph.num_speeds), rand(1:graph.num_headings))
@@ -74,10 +81,10 @@ function waypoint_change(sequence::Vector{Tuple{Int64,Int64,Int64}}, graph, limi
     return sequence, point
 end
 
-function one_point_move(sequence::Vector{Tuple{Int64,Int64,Int64}}, graph, limit_idx)
+function one_point_move(sequence::Vector{Tuple{Int64,Int64,Int64}}, graph, limit_idx::Int64)
     len = length(sequence)
     if len <= 2 #Cant apply operator since first index cannot be moved
-        return sequence
+        return sequence, -1
     end
 
     idx = rand(1:len)
@@ -103,10 +110,10 @@ function one_point_move(sequence::Vector{Tuple{Int64,Int64,Int64}}, graph, limit
     return sequence, min(new_idx, idx)
 end
 
-function one_point_exchange(sequence::Vector{Tuple{Int64,Int64,Int64}}, graph, limit_idx)
+function one_point_exchange(sequence::Vector{Tuple{Int64,Int64,Int64}}, graph, limit_idx::Int64)
     len = length(sequence)
     if len <= 2 #Cant apply operator since first index cannot be moved
-        return sequence
+        return sequence, -1
     end
 
     idx1 = rand(2:len)

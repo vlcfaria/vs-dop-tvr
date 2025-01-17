@@ -201,4 +201,19 @@ module Visual
         ax.grid()
         fig.savefig("speed.pdf", bbox_inches="tight")
     end
+
+    function plot_functions(op, interval = 0.125)
+        FIG_W = 14
+        FIG_H = FIG_W * 9/16
+        
+        fig = plt.figure()
+        ax = fig.add_subplot(111, facecolor="#EAEAF2FF")
+
+        x = collect(0:interval:op.tmax)
+        for f in op.functions
+            vals = [f(t) for t in x]
+            ax.plot(x,vals)
+        end
+
+    end
 end

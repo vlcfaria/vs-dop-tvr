@@ -173,7 +173,7 @@ function variable_neighborhood_search(op, initial_sequence::Vector{Tuple{Int64, 
 
     for i in 1:max_iterations
         if verbose
-            println(("OUTER", i, best_time, best_score))
+            println(("OUTER", i, best_score, best_time))
         end
 
         l = 1
@@ -187,7 +187,7 @@ function variable_neighborhood_search(op, initial_sequence::Vector{Tuple{Int64, 
             end
             
             #Search
-            for _ in 1:(len^2*op.graph.num_speeds^2*op.graph.num_headings)
+            for _ in 1:(len^2*op.graph.num_speeds^2)
                 search_seq, change_pos = Vns.search(deepcopy(local_sequence), op.graph, l, local_limit_idx)
                 search_score, search_time, search_limit_idx = Helper.calculate_seq_results(op, search_seq)
 
