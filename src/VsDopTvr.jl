@@ -112,11 +112,43 @@ function vs_dop_tvr(op_params, max_iterations::Int64 = 2000, verbose::Bool = fal
 end
 
 function greedy_solution(op)
-    sequence::Vector{Tuple{Int64,Int64,Int64}} = [(op.depots[1], 1, 1)] #TODO better first choice
-    seq_time = 0
-    seq_score = 0
     to_add = Set{Int64}(1:length(op.coordinates))
-    delete!(to_add, op.depots[1])
+
+    #Remove all depots as candidates, since they dont give score
+    for d in op.depots
+        delete!(to_add, d)
+    end
+
+    num_speeds = op.graph.num_speeds
+    num_headings = op.graph.num_headings
+
+    #Select the best first choice for depot, including speed & heading
+    starting_pos = (-1,-1,-1)
+    second_pos = (-1,-1,-1)
+    best_ratio = 0
+
+    for dep in op.depots #For all depots
+        for cand in to_add # Check all candidates
+            for (v_d, h_d, v_s, h_s) in itr.product(1:num_speeds, 1:num_headings, 1:num_speeds, 1:num_headings)
+                time_inc = op.graph.graph[dep, cand, v_d, v_s, h_d, h_s]
+                score_inc = op.functions[cand](time_inc)
+                ratio = score_inc / time_inc
+
+                #If move is allowed and ratio is better
+                if ratio > best_ratio && time_inc + op.dists_to_depot[cand, v_s, h_s, dep] <= op.tmax
+                    best_ratio = ratio
+                    starting_pos = (dep, v_d, h_d)
+                    second_pos = (cand, v_s, h_s)
+                end
+            end
+        end
+    end
+
+    sequence::Vector{Tuple{Int64,Int64,Int64}} = [starting_pos, second_pos]
+    delete!(to_add, second_pos[1])
+
+    seq_time = op.graph.graph[starting_pos[1], second_pos[1], starting_pos[2], second_pos[2], starting_pos[3], second_pos[3]]
+    seq_score = op.functions[second_pos[1]](seq_time)
 
     can_add = true
     while can_add
@@ -131,7 +163,7 @@ function greedy_solution(op)
         # Find next best move
         for candidate in to_add
             # Check every edge and its legality (can go back to depot)
-            for (v,h) in itr.product(1:op.graph.num_speeds, 1:op.graph.num_headings)
+            for (v,h) in itr.product(1:num_speeds, 1:num_headings)
                 time_increment = op.graph.graph[prev[1], candidate, prev[2], v, prev[3], h]
                 score_increment = op.functions[candidate](seq_time + time_increment)
                 ratio = score_increment / time_increment
@@ -154,9 +186,11 @@ function greedy_solution(op)
         end
     end
 
-    remaining = shuffle(collect(to_add))
+    last = sequence[end]
+    seq_time += op.dists_to_depot[last[1], last[2], last[3]]
 
-    sequence = vcat(sequence, [(n, rand(1:op.graph.num_speeds), rand(1:op.graph.num_headings)) for n in remaining])
+    remaining = shuffle(collect(to_add))
+    sequence = vcat(sequence, [(n, rand(1:num_speeds), rand(1:num_headings)) for n in remaining])
 
     return sequence, seq_score, seq_time
 end
