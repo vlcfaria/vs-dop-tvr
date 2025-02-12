@@ -195,6 +195,22 @@ function greedy_solution(op)
     return sequence, seq_score, seq_time
 end
 
+function random_solution(op)
+    starting_depot = rand(op.depots)
+
+    #Get nodes and remove chosen depot
+    nodes = collect(1:length(op.coordinates))
+    deleteat!(nodes, starting_depot)
+    shuffle!(nodes)
+    insert!(nodes, 1, starting_depot)
+
+    speeds, headings = op.graph.num_speeds, op.graph.num_headings
+    seq = [(n, rand(1:speeds), rand(1:headings)) for n in nodes] #Create random solution
+
+    score, time, _= Helper.calculate_seq_results(op, seq)
+    return seq, score, time
+end
+
 function variable_neighborhood_search(op, initial_sequence::Vector{Tuple{Int64, Int64, Int64}}, 
                                       max_iterations::Int64, verbose::Bool = false)
 
@@ -210,6 +226,10 @@ function variable_neighborhood_search(op, initial_sequence::Vector{Tuple{Int64, 
             println(("OUTER", i, best_score, best_time))
         end
 
+        if i % 250 == 0
+            println((i, best_score, best_time, Helper.get_actual_sequence(op, best_sequence)))
+        end
+
         l = 1
         while l <= 3
             #Shake
@@ -221,7 +241,7 @@ function variable_neighborhood_search(op, initial_sequence::Vector{Tuple{Int64, 
             end
             
             #Search
-            for _ in 1:(len^2*op.graph.num_speeds^2)
+            for _ in 1:(len^2*op.graph.num_speeds*op.graph.num_headings)
                 search_seq, change_pos = Vns.search(deepcopy(local_sequence), op.graph, l, local_limit_idx)
                 search_score, search_time, search_limit_idx = Helper.calculate_seq_results(op, search_seq)
 
