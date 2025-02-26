@@ -10,12 +10,13 @@ struct GAParams{T1,T2,T3,T4}
     cxpb::Float64
     mutpb::Float64
     ngen::Int
+    elite_percentage::Float64
 
     selection::T1
     crossover::T2
     mutation!::T3
-
     op_params::T4
+
     perturb_chance::Float64 #TODO add chance to perturb waypoints -> random waypoint or fastest speed or highest score
 end
 
@@ -26,6 +27,10 @@ mutable struct Individual{T}
 end
 
 function evolution(params::GAParams, fitness_fun, initial_genomes)
+    #Calculate number of elite individuals
+    elite_size = ceil(Int64, params.elite_percentage * params.popsize)
+    offspring_size = params.popsize - elite_size
+
     #Evaluate initial individuals
     population = map(genome -> Individual(genome, fitness_fun(params.op_params, genome), true), initial_genomes)
     sort!(population, by=x->x.fitness, rev=true)
@@ -33,9 +38,9 @@ function evolution(params::GAParams, fitness_fun, initial_genomes)
     #TODO insert elitism, maybe also dont select from offspring and population?
     for gen in 1:params.ngen #Run generations
         #Generate our offspring
-        offspring = params.selection(population, params.popsize)
+        offspring = params.selection(population, offspring_size)
         #Vary individuals
-        offspring = varAnd(population, params, params.cxpb, params.mutpb)
+        offspring = varAnd(offspring, params, params.cxpb, params.mutpb)
 
         #Re-evaluate invalid fitnesses
         for i in eachindex(offspring)
@@ -46,8 +51,9 @@ function evolution(params::GAParams, fitness_fun, initial_genomes)
         end
 
         #Reconstruct the population from elite individuals + offspring
-        #TODO
-
+        #Population is sorted by fitness, just pick the first as elite
+        population[elite_size+1:end] = offspring
+        sort!(population, by=x->x.fitness, rev=true) #Sort again
     end
 
     return population
