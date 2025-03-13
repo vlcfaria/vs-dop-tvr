@@ -4,6 +4,7 @@ import Random
 include("TimeFunctions.jl")
 include("AcceleratedDubins.jl")
 include("Helper.jl")
+include("Vns.jl")
 
 struct GAParams{T1,T2,T3,T4}
     popsize::Int
@@ -52,10 +53,59 @@ function evolution(params::GAParams, fitness_fun, initial_genomes)
         #Reconstruct the population from elite individuals + offspring
         #Population is sorted by fitness, just pick the first as elite
         population[elite_size+1:end] = offspring
+
+        #TODO add local search here!
+        local_search(population, params)
+
         sort!(population, by=x->x.fitness, rev=true) #Sort again
+        println((gen, population[1].fitness))
     end
 
     return population
+end
+
+function local_search(population, params, l_max=3)
+    #Apply one full iteration of VNS local searches
+    len = length(population[1].genome)
+    h,s = params.op_params.graph.num_headings, params.op_params.graph.num_speeds
+    tmax = params.op_params.tmax
+
+    @Threads.threads for ind in population
+        best_sequence = ind.genome
+        best_score, best_time, _ = Helper.calculate_seq_results(params.op_params, best_sequence)
+        l = 1
+        while l <= l_max
+            local_sequence = deepcopy(best_sequence)
+            local_score, local_time, local_limit_idx = Helper.calculate_seq_results(params.op_params, local_sequence)
+            #Search
+            for _ in 1:len^2
+                search_seq, _ = Vns.search(deepcopy(local_sequence), params.op_params.graph, l, local_limit_idx)
+                search_score, search_time, search_limit_idx = Helper.calculate_seq_results(params.op_params, search_seq)
+
+                # Check if searched solution is better OR equal -> Higher score within tmax OR same score, lower time
+                if (search_score > local_score && search_time <= tmax) || (search_score == local_score && search_time <= local_time)
+                    local_sequence = search_seq
+                    local_time = search_time
+                    local_score = search_score
+                    local_limit_idx = search_limit_idx
+                end
+            end
+
+            #Higher score found through local search OR equal score with lower time
+            if (local_time <= tmax && local_score > best_score) || (local_score == best_score && local_time < best_time)
+                best_time = local_time
+                best_sequence = local_sequence
+                best_score = local_score
+                l = 1
+            else
+                l += 1
+            end
+        end
+
+        #Override individual genome
+        ind.genome = best_sequence
+        ind.fitness = best_score
+    end
 end
 
 #Calc fitness
