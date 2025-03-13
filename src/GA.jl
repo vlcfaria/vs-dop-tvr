@@ -35,7 +35,6 @@ function evolution(params::GAParams, fitness_fun, initial_genomes)
     population = map(genome -> Individual(genome, fitness_fun(params.op_params, genome), true), initial_genomes)
     sort!(population, by=x->x.fitness, rev=true)
 
-    #TODO insert elitism, maybe also dont select from offspring and population?
     for gen in 1:params.ngen #Run generations
         #Generate our offspring
         offspring = params.selection(population, offspring_size)
@@ -65,8 +64,8 @@ function ind_fitness(op_params, seq)
 end
 
 #Apply both crossover and mutation on individuals
-function varAnd(population, params::GAParams, cxpb, mutpb)
-    offspring = [deepcopy(ind) for ind in population]
+function varAnd(offspring, params::GAParams, cxpb, mutpb)
+    #Assumes offspring was already copied
     l = length(offspring)
     for i in 2:2:l
         if rand() < cxpb
@@ -91,9 +90,9 @@ function selection_tournament(inds, k, tournsize=2)
     chosen = []
     for _ in 1:k
         # Choose tournsize number aspirants
-        aspirants = [rand(inds) for _ in 1:tournsize]
-        # Choose the one with the max value
-        push!(chosen, argmax(x->x.fitness, aspirants))
+        aspirants = rand(inds,tournsize)
+        # Choose copy of the one with the max value
+        push!(chosen, deepcopy(argmax(x->x.fitness, aspirants))) 
     end
 
     return chosen
@@ -134,7 +133,7 @@ function order_crossover(v1::T, v2::T, params, rng=Random.default_rng()) where {
 end
 
 function mutation(recombinant::T, params, rng=Random.default_rng()) where {T <: AbstractVector}
-    method = rand(rng, [insertion, swap2])
+    method = rand(rng, [insertion, swap2, waypoint_perturb])
 
     return method(recombinant, params)
 end
@@ -145,6 +144,11 @@ function insertion(recombinant::T, params, rng=Random.default_rng()) where {T <:
     from, to = rand(rng, 2:l, 2) #Position 1 cant be swapped
     val = recombinant[from]
     deleteat!(recombinant, from)
+    
+    if (rand() < params.perturb_chance)
+        h,s = params.op_params.graph.num_headings, params.op_params.graph.num_speeds
+        val = (val[1], rand(1:s), rand(1:h))
+    end
     return insert!(recombinant, to, val)
 end
 
@@ -153,6 +157,13 @@ function swap2(recombinant::T, params, rng=Random.default_rng()) where {T <: Abs
     l = length(recombinant)
     p1,p2 = rand(rng, 2:l, 2) #Position 1 cant be swapped
     recombinant[p1], recombinant[p2] = recombinant[p2], recombinant[p1]
+
+    for idx in [p1,p2]
+        if rand() < params.perturb_chance
+            h,s = params.op_params.graph.num_headings, params.op_params.graph.num_speeds
+            recombinant[idx] = (recombinant[idx][1], rand(1:s), rand(1:h))
+        end
+    end
     return recombinant
 end
 
@@ -161,7 +172,7 @@ function waypoint_perturb(recombinant::T, params, rng=Random.default_rng()) wher
     l = length(recombinant)
 
     h,s = params.op_params.graph.num_headings, params.op_params.graph.num_speeds
-    for i in eachindex(recombinant)
+    for idx in eachindex(recombinant)
         if rand() < params.perturb_chance
             recombinant[idx] = (recombinant[idx][1], rand(1:s), rand(1:h))
         end
