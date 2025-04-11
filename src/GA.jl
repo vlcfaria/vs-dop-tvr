@@ -15,7 +15,7 @@ struct GAParams{T1,T2,T3,T4}
 
     selection::T1
     crossover::T2
-    mutation!::T3
+    mutation::T3
     op_params::T4
 
     perturb_chance::Float64 #TODO add chance to perturb waypoints -> random waypoint or fastest speed or highest score
@@ -34,6 +34,7 @@ function evolution(params::GAParams, fitness_fun, initial_genomes)
 
     #Evaluate initial individuals
     population = map(genome -> Individual(genome, fitness_fun(params.op_params, genome), true), initial_genomes)
+    local_search(population, params)
     sort!(population, by=x->x.fitness, rev=true)
 
     for gen in 1:params.ngen #Run generations
@@ -54,7 +55,6 @@ function evolution(params::GAParams, fitness_fun, initial_genomes)
         #Population is sorted by fitness, just pick the first as elite
         population[elite_size+1:end] = offspring
 
-        #TODO add local search here!
         local_search(population, params)
 
         sort!(population, by=x->x.fitness, rev=true) #Sort again
@@ -67,10 +67,11 @@ end
 function local_search(population, params, l_max=3)
     #Apply one full iteration of VNS local searches
     len = length(population[1].genome)
-    h,s = params.op_params.graph.num_headings, params.op_params.graph.num_speeds
     tmax = params.op_params.tmax
 
-    @Threads.threads for ind in population
+    @Threads.threads for ind_idx in eachindex(population)
+        ind = population[ind_idx]
+
         best_sequence = ind.genome
         best_score, best_time, _ = Helper.calculate_seq_results(params.op_params, best_sequence)
         l = 1
@@ -127,7 +128,8 @@ function varAnd(offspring, params::GAParams, cxpb, mutpb)
 
     for i in eachindex(offspring)
         if rand() < mutpb
-            params.mutation!(offspring[i].genome, params)
+            #Not all mutations are in-place, so assign
+            offspring[i].genome = params.mutation(offspring[i].genome, params)
             offspring[i].valid = false
         end
     end
@@ -183,13 +185,40 @@ function order_crossover(v1::T, v2::T, params, rng=Random.default_rng()) where {
 end
 
 function mutation(recombinant::T, params, rng=Random.default_rng()) where {T <: AbstractVector}
-    method = rand(rng, [insertion, swap2, waypoint_perturb])
+    inversion_mutation = (x,y) -> displacement_mutation(x,y,true)
+    method = rand(rng, [displacement_mutation, inversion_mutation, waypoint_perturb])
 
     return method(recombinant, params)
 end
 
+#Also acts as the inversion mutation operator
+function displacement_mutation(recombinant::T, params, rev=false, rng=Random.default_rng()) where {T <: AbstractVector}
+    #Select a subtour at random, and insert it into a random place
+    start, stop = rand(rng, 2:length(recombinant), 2)
+    if stop < start
+        start,stop = stop,start
+    end
+
+    #Extract subtour
+    subtour = recombinant[start:stop]
+    if rev reverse!(subtour) end
+
+    h,s = params.op_params.graph.num_headings, params.op_params.graph.num_speeds
+
+    for i in eachindex(subtour)
+        if rand() < params.perturb_chance
+            subtour[i] = (subtour[i][1], rand(1:s), rand(1:h))
+        end
+    end
+
+    removed = vcat(recombinant[1:start-1], recombinant[stop+1:end])
+
+    insertion = rand(rng, 1:length(removed))
+    return vcat(removed[1:insertion], subtour, removed[insertion+1:end])
+end
+
 #Takes a random point and inserts elsewhere
-function insertion(recombinant::T, params, rng=Random.default_rng()) where {T <: AbstractVector}
+function insertion_mutation(recombinant::T, params, rng=Random.default_rng()) where {T <: AbstractVector}
     l = length(recombinant)
     from, to = rand(rng, 2:l, 2) #Position 1 cant be swapped
     val = recombinant[from]
@@ -199,25 +228,11 @@ function insertion(recombinant::T, params, rng=Random.default_rng()) where {T <:
         h,s = params.op_params.graph.num_headings, params.op_params.graph.num_speeds
         val = (val[1], rand(1:s), rand(1:h))
     end
-    return insert!(recombinant, to, val)
-end
-
-#Swaps 2 points
-function swap2(recombinant::T, params, rng=Random.default_rng()) where {T <: AbstractVector}
-    l = length(recombinant)
-    p1,p2 = rand(rng, 2:l, 2) #Position 1 cant be swapped
-    recombinant[p1], recombinant[p2] = recombinant[p2], recombinant[p1]
-
-    for idx in [p1,p2]
-        if rand() < params.perturb_chance
-            h,s = params.op_params.graph.num_headings, params.op_params.graph.num_speeds
-            recombinant[idx] = (recombinant[idx][1], rand(1:s), rand(1:h))
-        end
-    end
+    insert!(recombinant, to, val)
     return recombinant
 end
 
-#Changes waypoints
+#Changes waypoints of all positions according to chance
 function waypoint_perturb(recombinant::T, params, rng=Random.default_rng()) where {T <: AbstractVector}
     l = length(recombinant)
 
@@ -227,6 +242,8 @@ function waypoint_perturb(recombinant::T, params, rng=Random.default_rng()) wher
             recombinant[idx] = (recombinant[idx][1], rand(1:s), rand(1:h))
         end
     end
+
+    return recombinant
 end
 
 end
