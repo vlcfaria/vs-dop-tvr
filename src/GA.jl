@@ -192,6 +192,7 @@ function mutation(recombinant::T, params, rng=Random.default_rng()) where {T <: 
 end
 
 #Also acts as the inversion mutation operator
+#TODO make so displacements actually changes individual 100% of time
 function displacement_mutation(recombinant::T, params, rev=false, rng=Random.default_rng()) where {T <: AbstractVector}
     #Select a subtour at random, and insert it into a random place
     start, stop = rand(rng, 2:length(recombinant), 2)
@@ -213,14 +214,22 @@ function displacement_mutation(recombinant::T, params, rev=false, rng=Random.def
 
     removed = vcat(recombinant[1:start-1], recombinant[stop+1:end])
 
-    insertion = rand(rng, 1:length(removed))
+    #Make so this changs individual 100% of time
+    _, _, min_point = Helper.calculate_seq_results(params.op_params, recombinant)
+    if min_point < start
+        insertion = rand(rng, 1:min_point)
+    else
+        insertion = rand(rng, 1:length(removed))
+    end
+
     return vcat(removed[1:insertion], subtour, removed[insertion+1:end])
 end
 
 #Takes a random point and inserts elsewhere
+#TODO make so insertions actually changes individual 100% of time
 function insertion_mutation(recombinant::T, params, rng=Random.default_rng()) where {T <: AbstractVector}
     l = length(recombinant)
-    from, to = rand(rng, 2:l, 2) #Position 1 cant be swapped
+    from = rand(rng, 2:l) #Position 1 cant be swapped
     val = recombinant[from]
     deleteat!(recombinant, from)
     
@@ -228,16 +237,29 @@ function insertion_mutation(recombinant::T, params, rng=Random.default_rng()) wh
         h,s = params.op_params.graph.num_headings, params.op_params.graph.num_speeds
         val = (val[1], rand(1:s), rand(1:h))
     end
+
+    #Make so this changs individual 100% of time
+    _, _, min_point = Helper.calculate_seq_results(params.op_params, recombinant)
+    if min_point < from
+        to = rand(rng, 1:min_point)
+    else
+        to = rand(rng, 1:length(recombinant))
+    end
+
     insert!(recombinant, to, val)
     return recombinant
 end
 
-#Changes waypoints of all positions according to chance
+#Changes waypoints of a subsequence of positions according to chance
 function waypoint_perturb(recombinant::T, params, rng=Random.default_rng()) where {T <: AbstractVector}
     l = length(recombinant)
+    from, to = rand(rng, 1:l, 2)
+    if to > from
+        from,to = to,from
+    end
 
     h,s = params.op_params.graph.num_headings, params.op_params.graph.num_speeds
-    for idx in eachindex(recombinant)
+    for idx in from:to
         if rand() < params.perturb_chance
             recombinant[idx] = (recombinant[idx][1], rand(1:s), rand(1:h))
         end
