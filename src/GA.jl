@@ -192,7 +192,6 @@ function mutation(recombinant::T, params, rng=Random.default_rng()) where {T <: 
 end
 
 #Also acts as the inversion mutation operator
-#TODO make so displacements actually changes individual 100% of time
 function displacement_mutation(recombinant::T, params, rev=false, rng=Random.default_rng()) where {T <: AbstractVector}
     #Select a subtour at random, and insert it into a random place
     start, stop = rand(rng, 2:length(recombinant), 2)
@@ -226,7 +225,6 @@ function displacement_mutation(recombinant::T, params, rev=false, rng=Random.def
 end
 
 #Takes a random point and inserts elsewhere
-#TODO make so insertions actually changes individual 100% of time
 function insertion_mutation(recombinant::T, params, rng=Random.default_rng()) where {T <: AbstractVector}
     l = length(recombinant)
     from = rand(rng, 2:l) #Position 1 cant be swapped
