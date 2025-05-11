@@ -5,6 +5,7 @@ include("TimeFunctions.jl")
 include("AcceleratedDubins.jl")
 include("Helper.jl")
 include("Vns.jl")
+include("LocalSearch.jl")
 
 struct GAParams{T1,T2,T3,T4}
     popsize::Int
@@ -18,7 +19,7 @@ struct GAParams{T1,T2,T3,T4}
     mutation::T3
     op_params::T4
 
-    perturb_chance::Float64 #TODO add chance to perturb waypoints -> random waypoint or fastest speed or highest score
+    perturb_chance::Float64
 end
 
 mutable struct Individual{T}
@@ -80,7 +81,7 @@ function local_search(population, params, l_max=3)
             local_score, local_time, local_limit_idx = Helper.calculate_seq_results(params.op_params, local_sequence)
             #Search
             for _ in 1:len^2
-                search_seq, _ = Vns.search(deepcopy(local_sequence), params.op_params.graph, l, local_limit_idx)
+                search_seq = LocalSearch.search(deepcopy(local_sequence), params.op_params, l, local_limit_idx)
                 search_score, search_time, search_limit_idx = Helper.calculate_seq_results(params.op_params, search_seq)
 
                 # Check if searched solution is better OR equal -> Higher score within tmax OR same score, lower time
