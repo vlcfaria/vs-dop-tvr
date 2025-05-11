@@ -214,7 +214,7 @@ end
 function variable_neighborhood_search(op, initial_sequence::Vector{Tuple{Int64, Int64, Int64}}, 
                                       max_iterations::Int64, verbose::Bool = false)
 
-    best_score, best_time = Helper.calculate_seq_results(op, initial_sequence)
+    best_score, best_time, _ = Helper.calculate_seq_results(op, initial_sequence)
     best_sequence = initial_sequence
     len = length(initial_sequence)
     if (best_time > op.tmax) 
@@ -242,7 +242,7 @@ function variable_neighborhood_search(op, initial_sequence::Vector{Tuple{Int64, 
             
             #Search
             for _ in 1:(len^2*op.graph.num_speeds*op.graph.num_headings)
-                search_seq, change_pos = Vns.search(deepcopy(local_sequence), op.graph, l, local_limit_idx)
+                search_seq = Vns.search(deepcopy(local_sequence), op.graph, l, local_limit_idx)
                 search_score, search_time, search_limit_idx = Helper.calculate_seq_results(op, search_seq)
 
                 # Check if searched solution is better OR equal -> Higher score within tmax OR same score, lower time

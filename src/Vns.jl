@@ -78,7 +78,7 @@ function waypoint_change(sequence::Vector{Tuple{Int64,Int64,Int64}}, graph, limi
 
     sequence[point] = (sequence[point][1], rand(1:graph.num_speeds), rand(1:graph.num_headings))
 
-    return sequence, point
+    return sequence
 end
 
 function one_point_move(sequence::Vector{Tuple{Int64,Int64,Int64}}, graph, limit_idx::Int64)
@@ -107,7 +107,7 @@ function one_point_move(sequence::Vector{Tuple{Int64,Int64,Int64}}, graph, limit
     val = (val[1], rand(1:graph.num_speeds), rand(1:graph.num_headings))
     insert!(sequence, new_idx, val)
 
-    return sequence, min(new_idx, idx)
+    return sequence
 end
 
 function one_point_exchange(sequence::Vector{Tuple{Int64,Int64,Int64}}, graph, limit_idx::Int64)
@@ -134,7 +134,7 @@ function one_point_exchange(sequence::Vector{Tuple{Int64,Int64,Int64}}, graph, l
     sequence[idx1] = (sequence[idx1][1], rand(1:graph.num_speeds), rand(1:graph.num_headings))
     sequence[idx2] = (sequence[idx2][1], rand(1:graph.num_speeds), rand(1:graph.num_headings))
 
-    return sequence, min(idx1, idx2)
+    return sequence
 end
 
 function shake(sequence::Vector{Tuple{Int64,Int64,Int64}}, graph, l::Int64)
