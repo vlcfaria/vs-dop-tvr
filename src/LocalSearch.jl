@@ -2,6 +2,9 @@ module LocalSearch #Deterministic local search procedures
 
 import IterTools as itr
 
+include("AcceleratedDubins.jl")
+include("Helper.jl")
+
 function get_dist(graph, p1, p2)
     return graph[p1[1], p2[1], p1[2], p2[2], p1[3], p2[3]]
 end
@@ -89,34 +92,65 @@ function waypoint_change(seq::Vector{Tuple{Int64,Int64,Int64}}, op, limit_idx::I
     return seq
 end
 
-function one_point_move(sequence::Vector{Tuple{Int64,Int64,Int64}}, op, limit_idx::Int64)
+function one_point_move(seq::Vector{Tuple{Int64,Int64,Int64}}, op, limit_idx::Int64)
+    best_config = (-1,-1,-1)
+    best_og_pos = -1
+    best_dest_pos = -1
+    best_score = -Inf
+
     graph = op.graph
-    len = length(sequence)
-    if len <= 2 #Cant apply operator since first index cannot be moved
-        return sequence, -1
-    end
+    len = length(seq)
 
-    idx = rand(1:len)
-    val = sequence[idx]
-    deleteat!(sequence, idx)
+    for og_pos in 2:len #depot cannot be changed
+        og = seq[og_pos]
+        deleteat!(seq, og_pos)
 
-    if idx == 1 #If changing first point (depot), keep it there
-        new_idx = 1
-    elseif idx <= limit_idx #Any chosen index will modify the sequence
-        new_idx = rand(2:len)
-        #Assure index is different
-        while new_idx == idx
-            new_idx = rand(2:len)
+        #Need to get new limit idx, if the one we extracted was up to limit idx
+        if og_pos <= limit_idx
+            _, _, limit = Helper.calculate_seq_results(op, seq)
+        else #limit is unchanged, since "real" sequence wasnt also changed
+            limit = limit_idx
         end
-    else #Chosen index is out of the limit index, new index must be up to limit
-        new_idx = rand(2:limit_idx)
+
+        running_score = 0
+        running_time = 0
+        for i in 2:limit #Try inserting into every position
+            #Try every combination
+            for (v,h) in itr.product(1:graph.num_speeds, 1:graph.num_headings)
+                #Incoming edge to this
+                time = running_time + get_dist(graph.graph, seq[i-1], (og[1], v, h))
+                if time + get_dist_to_depot(op, (og[1], v, h), seq[1][1]) > op.tmax
+                    continue #Illegal
+                end
+                score = running_score + op.functions[og[1]](time)
+
+                #Outcoming edge
+                time += get_dist(graph.graph, (og[1], v, h), seq[i])
+                if time + get_dist_to_depot(op, seq[i], seq[1][1]) <= op.tmax #Can be extended
+                    score += op.functions[seq[i][1]](time)
+                    score = score_from_running(seq, op, score, time, i+1)
+                end
+
+                if score > best_score
+                    best_config = (og[1], v, h)
+                    best_og_pos = og_pos
+                    best_dest_pos = i
+                    best_score = score
+                end
+            end
+        end
+
+        #Put back, adjust running time
+        insert!(seq, og_pos, og)
+        running_time += get_dist(graph.graph, seq[og_pos-1], seq[og_pos])
+        running_score += op.functions[seq[og_pos][1]](running_time)
     end
 
-    #Randomly change waypoint too
-    val = (val[1], rand(1:graph.num_speeds), rand(1:graph.num_headings))
-    insert!(sequence, new_idx, val)
+    #Apply best move
+    deleteat!(seq, best_og_pos)
+    insert!(seq, best_dest_pos, best_config)
 
-    return sequence
+    return seq, best_score, length(seq)
 end
 
 function one_point_exchange(sequence::Vector{Tuple{Int64,Int64,Int64}}, op, limit_idx::Int64)
