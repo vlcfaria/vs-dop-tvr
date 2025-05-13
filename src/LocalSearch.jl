@@ -46,7 +46,6 @@ function waypoint_change(seq::Vector{Tuple{Int64,Int64,Int64}}, op, limit_idx::I
     best_pos = -1
     best_score = -Inf
     graph = op.graph
-    len = length(seq)
 
     #Special case -> Analyze the first index of the sequence
     og = seq[1]
@@ -89,7 +88,7 @@ function waypoint_change(seq::Vector{Tuple{Int64,Int64,Int64}}, op, limit_idx::I
     #Apply best move
     seq[best_pos] = best_change
 
-    return seq
+    return best_score
 end
 
 function one_point_move(seq::Vector{Tuple{Int64,Int64,Int64}}, op, limit_idx::Int64)
@@ -108,10 +107,11 @@ function one_point_move(seq::Vector{Tuple{Int64,Int64,Int64}}, op, limit_idx::In
         #Need to get new limit idx, if the one we extracted was up to limit idx
         if og_pos <= limit_idx
             _, _, limit = Helper.calculate_seq_results(op, seq)
-        else #limit is unchanged, since "real" sequence wasnt also changed
+        else #limit is unchanged, since "real" sequence wasnt changed
             limit = limit_idx
         end
 
+        #Running is unique to this
         running_score = 0
         running_time = 0
         for i in 2:limit #Try inserting into every position
@@ -138,58 +138,95 @@ function one_point_move(seq::Vector{Tuple{Int64,Int64,Int64}}, op, limit_idx::In
                     best_score = score
                 end
             end
+            
+            running_time += get_dist(graph.graph, seq[i-1], seq[i])
+            running_score += op.functions[seq[i][1]](running_time)
         end
 
-        #Put back, adjust running time
+        #Put back
         insert!(seq, og_pos, og)
-        running_time += get_dist(graph.graph, seq[og_pos-1], seq[og_pos])
-        running_score += op.functions[seq[og_pos][1]](running_time)
     end
 
     #Apply best move
     deleteat!(seq, best_og_pos)
     insert!(seq, best_dest_pos, best_config)
 
-    return seq, best_score, length(seq)
+    return best_score
 end
 
-function one_point_exchange(sequence::Vector{Tuple{Int64,Int64,Int64}}, op, limit_idx::Int64)
+function one_point_exchange(seq::Vector{Tuple{Int64,Int64,Int64}}, op, limit_idx::Int64)
+    best_p1_config = (-1,-1,-1)
+    best_p2_config = (-1,-1,-1)
+    best_p1 = -1
+    best_p2 = -1
+    best_score = -Inf
     graph = op.graph
-    len = length(sequence)
-    if len <= 2 #Cant apply operator since first index cannot be moved
-        return sequence, -1
-    end
+    len = length(seq)
 
-    idx1 = rand(2:len)
+    #Find best move
+    running_score = 0
+    running_time = 0
 
-    if idx1 <= limit_idx
-        idx2 = rand(2:len) #Choosing anything will modify the sequence
-        while idx1 == idx2 #While also assuring it is different
-            idx2 = rand(2:len)
+    for p1 in 2:limit_idx #Changing more than limit has no effect
+        og_p1 = seq[p1]
+        for p2 in p1:len #Also try changing with itself
+            og_p2 = seq[p2]
+            #Try all pairs
+            #TODO possible optimization -> if new p1 is over the new limit, v1 and h1 and irrelevant (?)
+            for (v1, v2, h1, h2) in itr.product(graph.num_speeds, graph.num_speeds, 
+                                                graph.num_headings, graph.num_headings)
+                seq[p1] = (og_p2[1], v2, h2)
+                seq[p2] = (og_p1[1], v1, h1)
+                score = score_from_running(seq, op, running_score, running_time, p1)
+
+                if score > best_score
+                    best_p1 = p1
+                    best_p2 = p2
+                    best_p1_config = (og_p1[1], v1, h1)
+                    best_p2_config = (og_p2[1], v2, h2)
+                    best_score = score
+                end
+            end
+
+            #Return p2 to original
+            seq[p2] = og_p2
         end
-    else
-        #Need to choose a value within limit index
-        idx2 = rand(2:limit_idx)
+
+        #Return p1
+        seq[p1] = og_p1
+        running_time += get_dist(graph.graph, seq[p1-1], seq[p1])
+        running_score += op.functions[seq[p1][1]](running_time)
     end
 
-    #Swap and assign random waypoints
-    sequence[idx1], sequence[idx2] = sequence[idx2], sequence[idx1]
+    #Apply best move
+    seq[best_p1] = best_p2_config
+    seq[best_p2] = best_p1_config
 
-    sequence[idx1] = (sequence[idx1][1], rand(1:graph.num_speeds), rand(1:graph.num_headings))
-    sequence[idx2] = (sequence[idx2][1], rand(1:graph.num_speeds), rand(1:graph.num_headings))
-
-    return sequence
+    return best_score
 end
 
 #limit_idx is the first index of the solution that is not visited, or the last index, in case all points is visited
-function search(sequence::Vector{Tuple{Int64,Int64,Int64}}, op, l::Int64, limit_idx::Int64)
+function search(sequence::Vector{Tuple{Int64,Int64,Int64}}, op, l::Int64)
     if l == 1
-        return waypoint_change(sequence, op, limit_idx)
+        method = waypoint_change
     elseif l == 2
-        return one_point_move(sequence, op, limit_idx)
+        method = one_point_move
     else
-        return one_point_exchange(sequence, op, limit_idx)
+        method = one_point_exchange
     end
+
+    #Call method repeatedly until no better solution is found
+    score, time, limit = Helper.calculate_seq_results(op, sequence)
+    while true
+        if score == method(sequence, op, limit)
+            break
+        end
+
+        #Get new score, time and limit
+        score, time, limit = Helper.calculate_seq_results(op, sequence)
+    end
+
+    return sequence, score, time
 end
 
 end
