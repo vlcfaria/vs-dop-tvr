@@ -77,26 +77,15 @@ function local_search(population, params, l_max=3)
         best_score, best_time, _ = Helper.calculate_seq_results(params.op_params, best_sequence)
         l = 1
         while l <= l_max
-            local_sequence = deepcopy(best_sequence)
-            local_score, local_time, local_limit_idx = Helper.calculate_seq_results(params.op_params, local_sequence)
+            local_seq = deepcopy(best_sequence)
+            local_score, local_time, local_limit_idx = Helper.calculate_seq_results(params.op_params, local_seq)
             #Search
-            for _ in 1:len^2
-                search_seq = LocalSearch.search(deepcopy(local_sequence), params.op_params, l, local_limit_idx)
-                search_score, search_time, search_limit_idx = Helper.calculate_seq_results(params.op_params, search_seq)
-
-                # Check if searched solution is better OR equal -> Higher score within tmax OR same score, lower time
-                if (search_score > local_score && search_time <= tmax) || (search_score == local_score && search_time <= local_time)
-                    local_sequence = search_seq
-                    local_time = search_time
-                    local_score = search_score
-                    local_limit_idx = search_limit_idx
-                end
-            end
+            local_seq, local_score, local_time = LocalSearch.search(deepcopy(local_seq), params.op_params, l)
 
             #Higher score found through local search OR equal score with lower time
             if (local_time <= tmax && local_score > best_score) || (local_score == best_score && local_time < best_time)
                 best_time = local_time
-                best_sequence = local_sequence
+                best_sequence = local_seq
                 best_score = local_score
                 l = 1
             else

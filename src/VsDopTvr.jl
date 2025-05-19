@@ -8,6 +8,7 @@ include("AcceleratedDubins.jl")
 include("Helper.jl")
 include("Visual.jl")
 include("Vns.jl")
+include("LocalSearch.jl")
 
 using FunctionWrappers
 import FunctionWrappers: FunctionWrapper
@@ -234,6 +235,7 @@ function variable_neighborhood_search(op, initial_sequence::Vector{Tuple{Int64, 
         while l <= 3
             #Shake
             local_sequence = Vns.shake(deepcopy(best_sequence), op.graph, l)
+            #TODO useless line below, remove
             local_score, local_time, local_limit_idx = Helper.calculate_seq_results(op, local_sequence)
 
             if verbose
@@ -241,18 +243,7 @@ function variable_neighborhood_search(op, initial_sequence::Vector{Tuple{Int64, 
             end
             
             #Search
-            for _ in 1:(len^2*op.graph.num_speeds*op.graph.num_headings)
-                search_seq = Vns.search(deepcopy(local_sequence), op.graph, l, local_limit_idx)
-                search_score, search_time, search_limit_idx = Helper.calculate_seq_results(op, search_seq)
-
-                # Check if searched solution is better OR equal -> Higher score within tmax OR same score, lower time
-                if (search_score > local_score && search_time <= op.tmax) || (search_score == local_score && search_time <= local_time)
-                    local_sequence = search_seq
-                    local_time = search_time
-                    local_score = search_score
-                    local_limit_idx = search_limit_idx
-                end
-            end
+            local_seq, local_score, local_time = LocalSearch.search(deepcopy(local_sequence), op, l)
 
             if verbose
                 println(("Final", local_score, local_time))
@@ -261,7 +252,7 @@ function variable_neighborhood_search(op, initial_sequence::Vector{Tuple{Int64, 
             #Higher score found through local search OR equal score with lower time
             if (local_time <= op.tmax && local_score > best_score) || (local_score == best_score && local_time < best_time)
                 best_time = local_time
-                best_sequence = local_sequence
+                best_sequence = local_seq
                 best_score = local_score
                 l = 1
             else
