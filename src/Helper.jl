@@ -57,6 +57,14 @@ function read_optvr_file(filename::String)
     return coordinates, values, depots, tmax
 end
 
+function get_dist(graph, p1, p2)
+    return graph[p1[1], p2[1], p1[2], p2[2], p1[3], p2[3]]
+end
+
+function get_dist_to_depot(op, p1, depot)
+    return op.dists_to_depot[p1[1], p1[2], p1[3], depot]
+end
+
 function is_legal_move(op, seq::Vector{Tuple{Int64,Int64,Int64}}, depot, time)
     #Check if last can return
     last = seq[end]
@@ -112,6 +120,34 @@ function calculate_seq_results(op, seq::Vector{Tuple{Int64,Int64,Int64}})
     elapsed_time += op.dists_to_depot[seq[end][1], seq[end][2], seq[end][3], 1]
 
     return score, elapsed_time, length(seq) #all indexes are in the solution, go back
+end
+
+function score_from_running(seq::Vector{Tuple{Int64,Int64,Int64}}, op, r_score, r_time, start_idx)
+    #Calculates the score, starting from the start index, and considering the r_score and r_time as the inital score and time
+    elapsed_time = r_time
+    score = r_score
+
+    for i in start_idx:length(seq)
+        prev = i-1
+
+        #Cost from going from prev to i
+        new_cost = op.graph.graph[seq[prev][1], seq[i][1], seq[prev][2], seq[i][2], seq[prev][3], seq[i][3]]
+
+        #If cannot go back to depot in time, next target cannot be added, sequence is over
+        if op.dists_to_depot[seq[i][1], seq[i][2], seq[i][3], 1] + new_cost + elapsed_time > op.tmax
+            # PREV goes back to depot
+            elapsed_time += op.dists_to_depot[seq[prev][1], seq[prev][2], seq[prev][3], 1]
+            return score #i is the first index not in solution
+        end
+
+        elapsed_time += new_cost
+        score += op.functions[seq[i][1]](elapsed_time)
+    end
+
+    #Got to the end of vector, go back to depot anyway
+    elapsed_time += op.dists_to_depot[seq[end][1], seq[end][2], seq[end][3], 1]
+
+    return score
 end
 
 #Gets "actual" sequence. Includes final visit to depot, and stops when visiting final visit.

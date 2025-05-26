@@ -5,6 +5,7 @@ import IterTools as itr
 include("AcceleratedDubins.jl")
 include("Helper.jl")
 
+#TODO get rid of this and move it to helper call
 function get_dist(graph, p1, p2)
     return graph[p1[1], p2[1], p1[2], p2[2], p1[3], p2[3]]
 end
@@ -13,6 +14,7 @@ function get_dist_to_depot(op, p1, depot)
     return op.dists_to_depot[p1[1], p1[2], p1[3], depot]
 end
 
+#Also get rid of this and move it to helper call
 function score_from_running(seq::Vector{Tuple{Int64,Int64,Int64}}, op, r_score, r_time, start_idx)
     #Calculates the score, starting from the start index, and considering the r_score and r_time as the inital score and time
     elapsed_time = r_time
