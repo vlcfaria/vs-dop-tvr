@@ -59,7 +59,7 @@ function check_legal_solution(op, sol, ini_time = 0, ini_score = 0, idx = 2)
         end
 
         #Add to score
-        score += op.functions[sol.seq[idx][1]](time)
+        score += op.functions[sol.seq[i][1]](time)
     end
 
     return true, score
@@ -79,30 +79,49 @@ end
 
 #Iteratively removes a node, sampling by the ones that contribute less to the solution
 #Higher values of p = more deterministic
+
+#TODO make so this doesnt actually take into account only the score of the individual node, but the total node score!
+#since scores are time sensitive, we want to actually figure out the node that removing the node wields the highest score
 function worst_removal(op, sol, num_removals::Int64, p::Int64)
     graph = op.graph.graph
 
-    for _ in 1:num_removals
+    for _ in 1:min(num_removals, length(sol.seq)-1)
         len = length(sol.seq)
-        scores = Array{Tuple{Float64,Int64}}(undef, len-1)
+        scores = Array{Tuple{Float64,Int64}}(undef, len-1) #TOTAL score of the solution when removing node i+1
         
-        time = 0
-        for i in 1:(len-1)
-            time += Helper.get_dist(graph, sol.seq[i], sol.seq[i+1])
+        running_time = 0
+        running_score = 0
+        for i in 2:(len-1) #Will try removing i
+            #Skip i: (i-1) -> (i+1)
+            time = running_time + Helper.get_dist(graph, sol.seq[i-1], sol.seq[i+1])
             
-            #Check node score of i+1
+            #Score seq[i+1] and continue
             score = op.functions[sol.seq[i+1][1]](time)
-            scores[i] = (score,i+1)
+            _, score = check_legal_solution(op, sol, time, score, i+2)
+
+            scores[i-1] = (score,i)
+            
+            #Continue by not skipping i
+            running_time += Helper.get_dist(graph, sol.seq[i-1], sol.seq[i])
+            running_score += op.functions[sol.seq[i][1]](running_time)
         end
 
-        #Pick the index
-        sort!(scores) #TODO this can be optimized into a linear selection algorithm
+        #Running time & score contain final solution skipping the last node
+        scores[len-1] = (running_score, len)
+
+        sort!(scores, rev=true) #TODO this can be optimized into a linear selection algorithm
         y = rand()
-        selected = floor(Int64, y^p * len) + 1
+        #Pick the index, bias towards points that still wield high scores when ignored
+        selected = floor(Int64, y^p * (len-1)) + 1
+
+        _, selected_pos = scores[selected]
+        selected_node = sol.seq[selected_pos][1]
+
+        println((selected_node, scores, sol.seq))
 
         #Delete from the solution
-        push!(sol.nodes_out, sol.seq[selected][1])
-        deleteat!(sol.seq, selected)
+        push!(sol.nodes_out, selected_node)
+        deleteat!(sol.seq, selected_pos)
     end
 
 end
