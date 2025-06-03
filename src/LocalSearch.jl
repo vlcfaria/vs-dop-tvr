@@ -231,4 +231,27 @@ function search(sequence::Vector{Tuple{Int64,Int64,Int64}}, op, l::Int64)
     return sequence, score, time
 end
 
+#Variable neighborhood descent, applies a move and changes neighborhood if better was found
+function VND(seq, op, l_max)
+    methods = [waypoint_change, one_point_move, one_point_exchange]
+    score, time, limit = Helper.calculate_seq_results(op, seq)
+
+    l = 1
+    while l <= l_max
+        #Find max move in neighborhood
+        l_score = methods[l](seq, op, limit)
+
+        if (l_score > score) #Better solution found, go back
+            l = 1
+            score = l_score
+        else
+            l += 1
+        end
+    end
+
+    _, time, _ = Helper.calculate_seq_results(op,seq)
+
+    return seq, score, time
+end
+
 end

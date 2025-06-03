@@ -264,5 +264,30 @@ function variable_neighborhood_search(op, initial_sequence::Vector{Tuple{Int64, 
     return best_sequence, best_time, best_score
 end
 
+function general_vns(op, seq, max_iter, l_max=3)
+    score, time, _ = Helper.calculate_seq_results(op,seq)
+
+    #General VNS algorithm
+    for _ in 1:max_iter
+        l = 1
+        while l <= l_max
+            #Shake
+            l_seq = Vns.shake(deepcopy(seq), op.graph, l)
+
+            #Call variable neighborhood descent (VND)
+            l_seq, l_score, l_time = LocalSearch.VND(l_seq, op, l_max)
+
+            #Change neighborhood up or down
+            if l_score > score || l_score == score && l_time < time
+                seq, score, time = l_seq, l_score, l_time
+                l = 1
+            else
+                l += 1
+            end
+        end
+    end
+
+    return seq, score
+end
 
 end # module VsDopTvr
