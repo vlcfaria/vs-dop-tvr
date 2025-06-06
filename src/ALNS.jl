@@ -2,6 +2,7 @@ module ALNS
 
 import IterTools as itr
 using Random
+using DataStructures
 
 include("AcceleratedDubins.jl")
 include("Helper.jl")
@@ -78,10 +79,7 @@ function random_removal(op, sol, num_removals::Int64,)
 end
 
 #Iteratively removes a node, sampling by the ones that contribute less to the solution
-#Higher values of p = more deterministic
-
-#TODO make so this doesnt actually take into account only the score of the individual node, but the total node score!
-#since scores are time sensitive, we want to actually figure out the node that removing the node wields the highest score
+#Higher values of p = more deterministic (picks more often the actual worst one)
 function worst_removal(op, sol, num_removals::Int64, p::Int64)
     graph = op.graph.graph
 
@@ -138,7 +136,7 @@ function random_waypoint_shuffle(op, sol, num_shuffles::Int64)
     #While violates tmax, remove randomly
     valid, _ = check_legal_solution(op,sol)
     while !valid
-        victim = rand(1:length(sol.seq))
+        victim = rand(2:length(sol.seq))
 
         push!(sol.nodes_out, sol.seq[victim][1])
         deleteat!(sol.seq, victim)
@@ -148,6 +146,29 @@ end
 
 #Repair operators ---
 
+#Helper function that tries to insert "point" at "i_point", considering the scores, without actually modifying sol.seq
+function check_insert(op, sol, i_point::Int64, running_score::Float64, running_time::Float64, point)
+    #Resolve incoming edge to node
+    time = running_time + Helper.get_dist(op.graph.graph, sol.seq[i_point-1], point)
+
+    #Check legality of inserting
+    if time + Helper.get_dist_to_depot(op, point, sol.seq[1][1]) > op.tmax
+        return false, -1
+    end
+    score = running_score + op.functions[point[1]](time)
+    
+    #Resolve outcoming edge and test legality of our solution (the FULL sequence must abide to TMAX!)
+    if i_point <= length(sol.seq)
+        time += Helper.get_dist(op.graph.graph, point, sol.seq[i_point])
+        score += op.functions[sol.seq[i_point][1]](time)
+        valid, score = check_legal_solution(op, sol, time, score, i_point+1)
+    else #We stop evaluating here (no outcoming edge), so this is valid due to earlier check
+        valid = true
+    end
+
+    return valid, score
+end
+
 #Iteratively inserts nodes which maximizes the total cost, stops when no legal move remaining
 function greedy_insertion(op, sol)
     graph = op.graph.graph
@@ -155,40 +176,24 @@ function greedy_insertion(op, sol)
         best_insertion, best_point, best_score = (-1,-1,-1), -1, -Inf
 
         #Iterate through solution
-        running_score = 0
-        running_time = 0
+        running_score = 0.
+        running_time = 0.
         for i_point in 2:(length(sol.seq)+1) #Also try including on last position
             #Try inserting all points, with all v/h
             for (node, v, h) in itr.product(sol.nodes_out,1:op.graph.num_speeds,1:op.graph.num_headings)
-                #Resolve incoming edge to node
-                time = running_time + Helper.get_dist(graph, sol.seq[i_point-1], (node,v,h))
-
-                #Check legality of inserting
-                if time + Helper.get_dist_to_depot(op, (node,v,h), sol.seq[1][1]) > op.tmax
-                    continue
-                end
-                score = running_score + op.functions[node](time)
-                
-                #Resolve outcoming edge and test legality of our solution (the FULL sequence must abide to TMAX!)
-                if i_point <= length(sol.seq)
-                    time += Helper.get_dist(graph, (node,v,h), sol.seq[i_point])
-                    score += op.functions[sol.seq[i_point][1]](time)
-                    valid, score = check_legal_solution(op, sol, time, score, i_point+1)
-                else #We stop evaluating here (no outcoming edge), so this is valid due to earlier check
-                    valid = true
-                end
+                valid, score = check_insert(op, sol, i_point, running_score, running_time, (node,v,h))
 
                 if valid && score > best_score
                     best_score = score
                     best_point = i_point
                     best_insertion = (node,v,h)
                 end
-            
-                #Increase running score/time, if not the last
-                if i_point <= length(sol.seq)
-                    running_time += Helper.get_dist(graph, sol.seq[i_point-1], sol.seq[i_point])
-                    running_score += op.functions[sol.seq[i_point][1]](running_time)
-                end
+            end
+
+            #Increase running score/time, if not the last
+            if i_point <= length(sol.seq)
+                running_time += Helper.get_dist(graph, sol.seq[i_point-1], sol.seq[i_point])
+                running_score += op.functions[sol.seq[i_point][1]](running_time)
             end
         end
         
@@ -204,10 +209,93 @@ function greedy_insertion(op, sol)
 end
 
 #Focuses on elements for which the choice of insertion position is critical. 
-#High k-regret = if best is not chosen, others will be worse
+#High k-regret = if best is not chosen, others will be worse.
+#Also prioritizes picking nodes that can be legally inserted a lesser amount of times (<= k)
 function k_regret_insertion(op,sol, k=2)
     #Calculate solution with biggest regret position, or the one with lowest possible insertions
-    #One insertion is one position to insert, so ignore (speed,heading)
+    #One "insertion" is one position to insert, so ignore (speed,heading)
+
+    #Map node -> (final_reward, insert position, speed,heading) 
+    insertions = Dict{Int64, BinaryMinMaxHeap{Tuple{Float64, Int64, Int64, Int64}}}()
+
+    running_score, running_time = 0.,0.
+    for i_point in 2:length(sol.seq)+1 #Also try inserting at last position
+        #Try inserting every node,v,h combination
+        for node in sol.nodes_out
+            #Figure out best waypoint for this insertion point
+            waypoint, best_score = (-1,-1), -1.
+            for (v, h) in itr.product(1:op.graph.num_speeds,1:op.graph.num_headings)
+                valid, score = check_insert(op, sol, i_point, running_score, running_time, (node,v,h))
+
+                if valid && score > best_score
+                    waypoint = (v,h)
+                    best_score = score
+                end
+            end
+            
+            #Insert best waypoint into dictionary
+            if best_score != -1.
+                heap = get!(insertions, node, BinaryMinMaxHeap{Tuple{Float64, Int64, Int64, Int64}}())
+                tup = (best_score, i_point, waypoint[1], waypoint[2])
+                if length(heap) >= k #Full
+                    if best_score > minimum(heap)[1]
+                        popmin!(heap)
+                        push!(heap, tup)
+                    end
+                else #Has room
+                    push!(heap, tup)
+                end
+            end
+        end
+
+        #Increase running score/time, if not the last
+        if i_point <= length(sol.seq)
+            running_time += Helper.get_dist(op.graph.graph, sol.seq[i_point-1], sol.seq[i_point])
+            running_score += op.functions[sol.seq[i_point][1]](running_time)
+        end
+    end
+
+    #All waypoints studied, figure out worst k-regret
+    biggest_regret, regret_size, biggest_node = -1, k, -1
+
+    for (node, h) in insertions
+        #println(node,"---")
+        #println((length(h), minimum(h), maximum(h)))
+
+        if length(h) > regret_size
+            continue
+        elseif length(h) < regret_size #Biggest regret, because we cant add in any other place but here
+
+            if length(h) > 1
+                biggest_regret = maximum(h)[1] - minimum(h)[1]
+            else
+                biggest_regret = maximum(h)[1]
+            end
+
+            regret_size = length(h)
+            biggest_node = node
+        else #Size is the same, check actual value
+            if length(h) > 1
+                regret = maximum(h)[1] - minimum(h)[1]
+            else
+                regret = maximum(h)[1]
+            end
+
+            if regret > biggest_regret
+                biggest_regret = regret
+                biggest_node = node
+            end
+        end
+    end
+
+    #If a node was chosen, insert it
+    if biggest_node != -1
+        _, i_pos, v, h = maximum(insertions[biggest_node])
+        insert!(sol.seq, i_pos, (biggest_node,v,h))
+        delete!(sol.nodes_out, biggest_node)
+    end
+
+    return sol
 end
 
 #Randomly inserts nodes. Randomization must be split -> determine which node/position will be inserted, then which heading/speed
