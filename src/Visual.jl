@@ -3,6 +3,8 @@ module Visual
     using PyCall
     using ..AcceleratedDubins
 
+    include("Helper.jl")
+
     """
         sample_line(x_endpoints, y_endpoints, num_points = 1000)
     Samples point in a line between two 2-dimensional points (x1,y1), (x2,y2)
@@ -95,54 +97,68 @@ module Visual
         return points_x, points_y, speed_at_point
     end
 
-    """
-        plot_full_path(op, paths)
-    Plots the full path of a full trajectory outputted by the the VS-DOP algorithm, using PyPlot.
 
-    # Arguments
-    - `op`: OP parameters object (see `OpParameters`)
-    - `paths`: Vector containing information relevant to the resulting path (see `Helper.retrieve_path`)
+    function plot_full_path(op, seq)
+        mins, maxs = estimate_globals(op, [x[1] for x in seq if !(x[1] in op.depots)])
+        dubins_path = Helper.retrieve_path(op, seq)
 
-    # Returns
-    `nothing`.
-    """
-    function plot_full_path(op, paths)
         parameters = op.graph.vehicle_params
         params = [parameters.v_min, parameters.v_max, parameters.a_max, -parameters.a_min]
 
         FIG_W = 14
         FIG_H = FIG_W * 9/16
-        
-        fig = plt.figure(figsize=(FIG_W,FIG_H), dpi=100)
-        ax = fig.add_subplot(111, aspect="equal", facecolor="#EAEAF2FF")
+
+        fig, (ax, ax2) = plt.subplots(2,1, figsize=(FIG_W,FIG_H), dpi=100)
+
+        ax.set_aspect("equal")
         ax.tick_params(axis="both", which="major", labelsize=16)
-        # ax.tick_params(axis='both', which='minor', labelsize=8)
         plt.grid(color="w", linestyle="solid")
 
         ax.set_xlabel("x [m]", fontsize=28)
         ax.set_ylabel("y [m]", fontsize=28)
 
-        #fig, ax = plt.subplots()
         LineCollection = plt.matplotlib[:collections][:LineCollection]
         np = pyimport("numpy")
 
         speeds = op.graph.speeds
         vmin, vmax = minimum(speeds), maximum(speeds)
         norm = plt.matplotlib[:pyplot][:Normalize](vmin=vmin, vmax=vmax)
-        #cmap = plt.get_cmap("viridis")
-        #cmap_path = plt.get_cmap("YlOrRd")
+
         cmap_path = plt.get_cmap("autumn_r")
         cmap_locs = plt.get_cmap("cool")
 
-        scatter = plt.scatter([x[1] for x in op.coordinates], [x[2] for x in op.coordinates], 
-                               zorder=2, s=150, marker="s")
-        plt.scatter([op.coordinates[1][1]], [op.coordinates[1][2]],  c="g", zorder=5, s=120)
-        colorbar = plt.colorbar(scatter, pad=-0.025)
-        colorbar.ax.set_title("Reward", fontsize=16)  
-        colorbar.ax.tick_params(labelsize=16)
+        #Plot general points, first and last node should be the depots
+        time = 0
+        visit_data = []
+        plotted_nodes = Dict()
+        for i in 2:(length(seq)-1) #Visit once for data
+            time += Helper.get_dist(op.graph.graph, seq[i-1], seq[i])
+            score = op.functions[seq[i][1]](time)
+            push!(visit_data, (time, score))
+        end
+        #Establish norm
+        all_scores = [x[end] for x in visit_data]
+        score_norm = plt.matplotlib[:pyplot][:Normalize](vmin=minimum(all_scores), vmax=maximum(all_scores))
 
+        #Run again to plot
+        for i in 2:(length(seq)-1)
+            node = seq[i][1]
+            time, score = visit_data[i-1]
+            artist = ax.scatter(op.coordinates[node]..., zorder=2, s=150, c=score, cmap=cmap_locs, norm=score_norm, marker="s", picker=true)
+
+            plotted_nodes[artist] = (node, time)
+        end
+
+        fig.canvas.mpl_connect("pick_event", e -> on_pick(e, ax2, plotted_nodes, op))
+
+
+        #Plot all depots
+        depot_coords = [op.coordinates[x] for x in op.depots]
+        ax.scatter([x[1] for x in depot_coords], [x[2] for x in depot_coords],  c="g", zorder=5, s=120)
+
+        #Sample the path
         x, y = [], []
-        for (path, v_i, v_f) in paths
+        for (path, v_i, v_f) in dubins_path
             confx, confy = AcceleratedDubins.sample_path(path)
             times, speeds = AcceleratedDubins.speed_profile(path, params, [v_i, v_f])
 
@@ -155,13 +171,57 @@ module Visual
             ax.add_collection(lc, autolim=true)
         end
 
+        #Set reward colobar TODO re-enable this
+        sm_nodes = plt.cm.ScalarMappable(cmap=cmap_locs, norm=score_norm)
+        colorbar = plt.colorbar(sm_nodes, pad=-0.025, ax=ax)
+        colorbar.ax.set_title("Reward", fontsize=16)  
+        colorbar.ax.tick_params(labelsize=16)
+
+        #Set speed colorbar
         sm = plt.cm.ScalarMappable(cmap=cmap_path, norm=norm)
         sm.set_array(speeds)
         cbar = plt.colorbar(sm, ax=ax)
         cbar.ax.set_title("Speed", fontsize=16)
         cbar.ax.tick_params(labelsize=16)
 
+        #Start 
+        #ax2.set_ylim(minimum(mins), maximum(maxs))
+
         fig.savefig("path.pdf", bbox_inches="tight")
+    end
+
+    function estimate_globals(op, nodes, interval=0.05)
+        mins, maxs = [], []
+        for n in nodes
+            f = op.functions[n]
+            mi, ma = Inf, -Inf
+            for x in 0:interval:op.tmax
+                val = f(x)
+                if val < mi
+                    mi = val
+                end
+                if val > ma
+                    ma = val
+                end
+                push!(mins, mi)
+                push!(maxs, ma)
+            end
+        end
+        return min, maxs
+    end
+
+    function on_pick(event, ax, plotted_nodes, op, interval = 0.125)
+        artist = event.artist
+        node, visit_time = plotted_nodes[artist]
+        f = op.functions[node]
+
+        x = collect(0:interval:op.tmax)
+        vals = [f(t) for t in x]
+
+        ax.clear()
+
+        ax.plot(x, vals, label="Node function")
+        ax.plot(visit_time, f(visit_time), "ro", markersize=10, label="Actual Visit") # Mark visit
     end
 
     """
