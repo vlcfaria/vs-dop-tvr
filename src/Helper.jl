@@ -54,6 +54,11 @@ function read_optvr_file(filename::String)
         end
     end
 
+    #Just in case, zero out depot function
+    for d in depots
+        values[d] = TimeFunctions.zero_func()
+    end
+
     return coordinates, values, depots, tmax
 end
 

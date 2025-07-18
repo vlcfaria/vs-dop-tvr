@@ -13,4 +13,8 @@ function sine_wave(a::Number, b::Number, f::Number, d::Number)
     return t -> (a + b * sin(2 * pi * f * t + d))
 end
 
+function zero_func()
+    return t -> 0.
+end
+
 end
